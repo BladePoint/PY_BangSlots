@@ -1,0 +1,13 @@
+{
+  "title": "Template Starter",
+  "description": "A simple visualization demo showing depth values from simulated Orifice hardware. Great starting point for building your own interactive experiences.",
+  "author": "Example Developer",
+  "version": "1.0.0",
+  "requires_internet": false,
+  "external_apis_used": [],
+  "genre": ["Demo", "Visualization", "Educational"],
+  "kinks": ["Vanilla"],
+  "input_mode": "Device Native",
+  "multiplayer": false,
+  "tags": ["Template", "Starter", "Demo"]
+} 
