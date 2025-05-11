@@ -7,19 +7,17 @@ import os
 import sys
 from datetime import datetime
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
+from title_screen import TitleScreen
+
+logging.basicConfig( # Configure logging
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler(stream=sys.stdout)]
 )
-
-# Get application logger
-logger = logging.getLogger('orifice.app')
+logger = logging.getLogger('orifice.app') # Get application logger
 logger.info("Application starting")
 
-# Load game info from JSON
-try:
+try: # Load game info from JSON
     logger.debug("Loading game info from JSON")
     with open('gameinfo.json', 'r') as f:
         game_info = json.load(f)
@@ -33,8 +31,7 @@ except Exception as e:
     }
     logger.warning("Using default game info")
 
-# Initialize Orifice device
-try:
+try: # Initialize Orifice device
     logger.info("Initializing Orifice device")
     device = orifice.Orifice()
 except Exception as e:
@@ -42,8 +39,7 @@ except Exception as e:
     pygame.quit()
     sys.exit(1)
 
-# Initialize Pygame Display
-logger.info("Initializing Pygame")
+logger.info("Initializing Pygame") # Initialize Pygame Display
 SCREEN_WIDTH, SCREEN_HEIGHT = 800, 480
 try:
     pygame.init()
@@ -55,8 +51,7 @@ except Exception as e:
     device.close()
     sys.exit(1)
 
-# Fonts
-try:
+try: # Fonts
     title_font = pygame.font.SysFont(None, 64)
     font = pygame.font.SysFont(None, 36)
     small_font = pygame.font.SysFont(None, 24)
@@ -65,16 +60,18 @@ except Exception as e:
     logger.error(f"Error loading fonts: {e}")
     title_font = font = small_font = pygame.font.SysFont(None, 24)  # Fallback
 
-# Clock
-clock = pygame.time.Clock()
+clock = pygame.time.Clock() # Clock
 
-# Pre-render static text
-title_text = title_font.render(game_info["title"], True, (0, 0, 0))
+title_text = title_font.render(game_info["title"], True, (0, 0, 0)) # Pre-render static text
 version_text = small_font.render(f"Version: {game_info['version']}", True, (100, 100, 100))
 
-# Pre-wrap description lines
-description_lines = textwrap.wrap(game_info["description"], width=70)
+description_lines = textwrap.wrap(game_info["description"], width=70) # Pre-wrap description lines
 desc_text_surfaces = [small_font.render(line, True, (80, 80, 80)) for line in description_lines]
+
+logger.info("Creating screen instances...")
+title_screen_handler = TitleScreen(screen)
+active_screen_handler = title_screen_handler
+active_screen_handler.on_enter()
 
 # Main Loop
 running = True
@@ -86,14 +83,15 @@ fps_display = "FPS: --"
 logger.info("Entering main loop")
 try:
     while running:
-        # Event handling
-        for event in pygame.event.get():
+        time_delta = clock.tick(120) / 1000.0
+        for event in pygame.event.get(): # Event handling
             if event.type == pygame.QUIT:
                 logger.info("Quit event received")
                 running = False
+            if active_screen_handler:
+                active_screen_handler.handle_event(event)
 
-        # Get current depth
-        try:
+        try: # Get current depth
             current_depth = device.depth
         except Exception as e:
             logger.error(f"Error getting depth: {e}")
@@ -109,54 +107,32 @@ try:
             logger.debug(f"FPS: {fps}")
             frame_count = 0
             fps_update_time = current_time
-        
-        # Only redraw the screen if depth changes or if 10 frames have passed
-        if current_depth != last_depth or frame_count % 10 == 0:
-            # Fill screen with white
-            screen.fill((255, 255, 255))
 
-            # Draw title and version (static content)
-            screen.blit(title_text, (50, 30))
-            screen.blit(version_text, (SCREEN_WIDTH - 150, 30))
-            
-            # Draw FPS
-            fps_text = small_font.render(fps_display, True, (100, 100, 100))
-            screen.blit(fps_text, (SCREEN_WIDTH - 150, 60))
-            
-            # Draw description
-            for i, surface in enumerate(desc_text_surfaces):
-                screen.blit(surface, (50, 100 + (i * 25)))
-
-            # Draw depth as text
-            depth_text = font.render(f"Depth: {current_depth}", True, (0, 0, 0))
-            screen.blit(depth_text, (50, 200))
-
-            # Draw depth bar visualization
-            bar_height = int((current_depth / 1024) * 200)  # Smaller bar height
-            pygame.draw.rect(screen, (0, 0, 255), (SCREEN_WIDTH - 100, SCREEN_HEIGHT - bar_height, 50, bar_height))
-
-            # Update display
-            pygame.display.flip()
-            
-            if current_depth != last_depth:
-                logger.debug(f"Depth updated: {current_depth}")
-                
-            last_depth = current_depth
-        
-        # Limit frame rate but ensure we process events even if not redrawing
-        clock.tick(120)  # Higher frame rate limit for input responsiveness
-        
+        if active_screen_handler:
+            active_screen_handler.update(time_delta)
+            active_screen_handler.render()
+            next_screen_signal = active_screen_handler.handle_event(event)
+            if next_screen_signal == "START_GAME":
+                logger.info("Received START_GAME signal from title screen.")
+                # Here you would switch:
+                # active_screen_handler.on_exit()
+                # active_screen_handler = your_next_screen_handler_instance
+                # active_screen_handler.on_enter()
+                # For now, you could just set running = False to test
+                # running = False
+        else: # Fallback if no active screen, fill with a color
+            screen.fill((50,0,50)) # Dark purple error/fallback
+        pygame.display.flip()
 except Exception as e:
     logger.critical(f"Unhandled exception in main loop: {e}", exc_info=True)
-finally:
-    # Clean up
+    
+finally: # Clean up
     logger.info("Shutting down application")
     try:
         device.close()
         logger.debug("Device closed")
     except Exception as e:
         logger.error(f"Error closing device: {e}")
-        
     try:
         pygame.quit()
         logger.debug("Pygame resources released")
