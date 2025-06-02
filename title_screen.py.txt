@@ -4,28 +4,30 @@ import os
 import logging
 import numpy as np
 
-from base_screen import BaseScreen
-
 logger = logging.getLogger(__name__)
 
-class TitleScreen(BaseScreen):
+class TitleScreen:
     def __init__(self, screen):
-        super().__init__(screen)
+        self.screen = screen
+        self.screen_width, self.screen_height = self.screen.get_size()
+        self.is_active = False
         self.time_offset = 0.0
-        # --- Wave Effect Parameters ---
-        self.max_amplitude_at_bottom = 1.0  # Amplitude: Scales linearly from 0 at the top of water to max_amplitude_at_bottom at the bottom in pixels.
 
-        # Frequency: Higher value means waves are 'denser' or 'smaller' at horizon.
-        self.horizon_frequency = 0.36  # Wave frequency at the top of water region
-        self.near_frequency = 0.24     # Wave frequency at the bottom of water region
+        # --- Wave Effect Parameters (Simplified Linear Scaling) ---
+        # Amplitude: Scales linearly from 0 at the top of water to max_amplitude_at_bottom at the bottom.
+        self.max_amplitude_at_bottom = 1.0  # Max pixels of horizontal shift at the very bottom.
 
+        # Frequency: Scales linearly from horizon_frequency at top of water to near_frequency at bottom.
+        self.horizon_frequency = 0.36  # Wave frequency at the furthest point (top of water region, 0.2 * 1.8 = 0.36)
+        self.near_frequency = 0.24    # Wave frequency at the closest point (bottom of water region)
+                                      # Higher value means waves are 'denser' or 'smaller' at horizon.
         # Speed
-        self.speed_x = 3.0
+        self.speed_x = 3.0           # How fast the wave pattern animates horizontally
 
         # --- Define Water Region ---
         self.water_region_start_y = 411
-        self.water_region_height = self.screen_rect.height - self.water_region_start_y
-        self.water_region_width = self.screen_rect.width
+        self.water_region_height = self.screen_height - self.water_region_start_y
+        self.water_region_width = self.screen_width
 
         self.static_background_part = None
         self.original_water_np = None
@@ -40,11 +42,11 @@ class TitleScreen(BaseScreen):
             logger.info(f"Attempting to load image from: {image_path}")
 
             full_background_image = pygame.image.load(image_path).convert()
-            full_background_image = pygame.transform.scale(full_background_image, (self.screen_rect.width, self.screen_rect.height))
+            full_background_image = pygame.transform.scale(full_background_image, (self.screen_width, self.screen_height))
             logger.info(f"TitleScreen loaded full background image from: {image_path}")
 
             self.static_background_part = full_background_image.subsurface(
-                pygame.Rect(0, 0, self.screen_rect.width, self.water_region_start_y)
+                pygame.Rect(0, 0, self.screen_width, self.water_region_start_y)
             ).copy()
 
             if self.water_region_height > 0: # Only process water if its region exists
@@ -68,43 +70,43 @@ class TitleScreen(BaseScreen):
 
         except Exception as e:
             logger.fatal(f"Could not load/process background. Path tried: {image_path if 'image_path' in locals() else 'N/A'}. Error: {e}", exc_info=True)
-            self.static_background_part = pygame.Surface((self.screen_rect.width, self.screen_rect.height))
+            self.static_background_part = pygame.Surface((self.screen_width, self.screen_height))
             self.static_background_part.fill((30, 30, 30))
             self.original_water_np = None
             self.rippling_water_surface = None
             logger.warning("TitleScreen using fallback background color.")
 
-    def on_enter(self):
-        super().on_enter()
+    def on_enter(self): # Same as before
         logger.debug("TitleScreen on_enter called.")
+        self.is_active = True
         self.time_offset = 0.0
 
-    def on_exit(self):
-        super().on_exit()
+    def on_exit(self): # Same as before
         logger.debug("TitleScreen on_exit called.")
+        self.is_active = False
 
-    def handle_event(self, event):
-        super().handle_event(event)
+    def handle_event(self, event): # Same as before
+        if not self.is_active:
+            return None
         if event.type == pygame.KEYDOWN: # Example event
             if event.key == pygame.K_SPACE:
-                return "START_GAME" # Signal to main loop
-        return None # No signal
+                return "START_GAME"
+        return None
 
     def update(self, time_delta):
-        super().update(time_delta)
-        if self.original_water_np is None or self.xx_water is None or self.yy_water is None:
-            return # Skip water effect if not initialized
+        if not self.is_active or self.original_water_np is None or self.xx_water is None:
+            return
 
         self.time_offset += time_delta
 
         # --- Wave Calculation for the Water Region (Linear Scaling) ---
+
         # 1. Calculate y_normalized (0 at top of water/horizon, 1 at bottom of water/near)
         if self.water_region_height > 1:
             y_normalized = self.yy_water / (self.water_region_height - 1.0)
-        elif self.water_region_height == 1: # Handle edge case of 1px high water region
-             y_normalized = np.ones_like(self.yy_water)
-        else: # water_region_height <= 0, though previous checks should catch this
-            return
+        else:
+            # If water_region_height is 1, y_normalized can be considered 1 (closest point)
+            y_normalized = np.ones_like(self.yy_water)
 
         # 2. Calculate Current Amplitude (Linearly scaled by y_normalized)
         # Amplitude is 0 at horizon (y_normalized=0) and self.max_amplitude_at_bottom at near (y_normalized=1)
@@ -133,13 +135,14 @@ class TitleScreen(BaseScreen):
         pygame.surfarray.blit_array(self.rippling_water_surface, np.transpose(rippling_array_data, (1, 0, 2)))
 
     def render(self): # Same as before
+        if not self.is_active:
+            return
+
         if self.static_background_part:
-            self.screen_surface.blit(self.static_background_part, (0, 0))
+            self.screen.blit(self.static_background_part, (0, 0))
         else:
-            self.screen_surface.fill((30,30,30))
+            self.screen.fill((30,30,30))
             return
 
         if self.rippling_water_surface and self.original_water_np is not None:
-            self.screen_surface.blit(self.rippling_water_surface, (0, self.water_region_start_y))
-
-        super().render()
+            self.screen.blit(self.rippling_water_surface, (0, self.water_region_start_y))

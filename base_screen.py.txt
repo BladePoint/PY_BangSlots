@@ -1,0 +1,73 @@
+import pygame
+
+class BaseScreen:
+	def __init__(self, screen_surface):
+		self.screen_surface = screen_surface
+		self.screen_rect = screen_surface.get_rect()
+
+		self.is_fading = False
+		self.is_blackening = False
+		self.fade_alpha = 0
+		self.fade_duration = 0.5  # seconds
+		self.fade_timer = 0
+		self.fade_surface = pygame.Surface(self.screen_rect.size)
+		self.fade_surface.fill((0, 0, 0))
+		self.on_fade_complete = None
+
+	def fade_from_black(self, duration=0.5, on_complete=None):
+		self.fade(False, duration, on_complete)
+
+	def fade_to_black(self, duration=0.5, on_complete=None):
+		self.fade(True, duration, on_complete)
+		
+	def fade(self, is_blackening, duration=0.5, on_complete=None):
+		self.is_blackening = is_blackening
+		self.fade_duration = duration
+		self.on_fade_complete = on_complete
+		self.fade_timer = 0
+		if duration <= 0: # Handle instant transition
+			self.complete_fade()
+		else:
+			self.is_fading = True
+			self.fade_alpha = 0 if self.is_blackening else 255
+
+	def update_fade(self, time_delta):
+		if self.is_fading:
+			self.fade_timer += time_delta
+			progress = min(1.0, self.fade_timer / self.fade_duration if self.fade_duration > 0 else 1.0)
+			if self.is_blackening: self.fade_alpha = int(progress * 255)
+			else: self.fade_alpha = int((1.0 - progress) * 255)
+			self.fade_alpha = max(0, min(255, self.fade_alpha)) # Clamp alpha
+			if self.fade_timer >= self.fade_duration: self.complete_fade()
+
+	def complete_fade(self):
+		self.is_fading = False
+		self.fade_alpha = 255 if self.is_blackening else 0
+		if self.on_fade_complete:
+			self.on_fade_complete()
+			self.on_fade_complete = None
+
+	def render_transition(self):
+		if self.fade_alpha > 0: # Only blit if there's some opacity
+			self.fade_surface.set_alpha(self.fade_alpha)
+			self.screen_surface.blit(self.fade_surface, (0, 0))
+
+	# --- Methods to be overridden by subclasses ---
+	def handle_event(self, event):
+		pass # Or common handling like checking for ESC to quit
+
+	def update(self, time_delta):
+		self.update_fade(time_delta) # Crucial: update transition logic
+
+	def render(self):
+		# Subclasses will draw their specific content here FIRST
+		# Then the transition overlay is drawn on top
+		self.render_transition()
+
+	def on_enter(self):
+		# logger.info(f"{self.__class__.__name__} entered.")
+		pass
+
+	def on_exit(self):
+		# logger.info(f"{self.__class__.__name__} exited.")
+		pass
