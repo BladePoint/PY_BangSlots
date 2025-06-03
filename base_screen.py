@@ -1,74 +1,117 @@
 # base_screen.py
 import pygame
+import logging
+
+logger = logging.getLogger(__name__)
 
 class BaseScreen:
-	def __init__(self, screen_surface):
+
+	def __init__(self, screen_surface, device, game_data):
 		self.screen_surface = screen_surface
+		self.device = device
+		self.game_data = game_data
 		self.screen_rect = screen_surface.get_rect()
 
-		self.is_fading = False
+		self.device_input_threshold = 512
+		self.device_initial = None
+
+		self.next_screen_name = None
+		self.end_screen_requested = False
+
+		self.is_transitioning = False
 		self.is_blackening = False
 		self.fade_alpha = 0
-		self.fade_duration = 0.5  # seconds
+		self.fade_duration = None  # seconds
 		self.fade_timer = 0
 		self.fade_surface = pygame.Surface(self.screen_rect.size)
 		self.fade_surface.fill((0, 0, 0))
 		self.on_fade_complete = None
 
+	def set_next_screen(self, screen_name):
+		self.next_screen_name = screen_name
+
+	def request_end_screen(self, next_screen_name=None):
+		if not self.end_screen_requested and not self.is_transitioning:
+			if self.next_screen_name is None:
+				logger.warning(f"{self.__class__.__name__} requested end scene, but next_screen_name is not set!")
+				return
+			self.end_screen_requested = True
+			if next_screen_name is not None: self.next_screen_name = next_screen_name
+			logger.debug(f"{self.__class__.__name__} requested end. Next: {self.next_screen_name}")
+
 	def fade_from_black(self, duration=0.5, on_complete=None):
-		self.fade(False, duration, on_complete)
+		self._fade_transition(False, duration, on_complete)
 
 	def fade_to_black(self, duration=0.5, on_complete=None):
-		self.fade(True, duration, on_complete)
+		self._fade_transition(True, duration, on_complete)
 		
-	def fade(self, is_blackening, duration=0.5, on_complete=None):
+	def _fade_transition(self, is_blackening, duration=0.5, on_complete=None):
 		self.is_blackening = is_blackening
 		self.fade_duration = duration
 		self.on_fade_complete = on_complete
 		self.fade_timer = 0
 		if duration <= 0: # Handle instant transition
-			self.complete_fade()
+			self._complete_fade()
 		else:
-			self.is_fading = True
+			self.is_transitioning = True
 			self.fade_alpha = 0 if self.is_blackening else 255
 
-	def update_fade(self, time_delta):
-		if self.is_fading:
+	def _update_fade(self, time_delta):
+		if self.is_transitioning:
 			self.fade_timer += time_delta
 			progress = min(1.0, self.fade_timer / self.fade_duration if self.fade_duration > 0 else 1.0)
 			if self.is_blackening: self.fade_alpha = int(progress * 255)
 			else: self.fade_alpha = int((1.0 - progress) * 255)
 			self.fade_alpha = max(0, min(255, self.fade_alpha)) # Clamp alpha
-			if self.fade_timer >= self.fade_duration: self.complete_fade()
+			if self.fade_timer >= self.fade_duration: self._complete_fade()
 
-	def complete_fade(self):
-		self.is_fading = False
+	def _complete_fade(self):
+		self.is_transitioning = False
 		self.fade_alpha = 255 if self.is_blackening else 0
 		if self.on_fade_complete:
-			self.on_fade_complete()
+			callback = self.on_fade_complete
 			self.on_fade_complete = None
+			callback()
 
-	def render_transition(self):
+	def _render_transition_overlay(self):
 		if self.fade_alpha > 0: # Only blit if there's some opacity
 			self.fade_surface.set_alpha(self.fade_alpha)
 			self.screen_surface.blit(self.fade_surface, (0, 0))
 
 	# --- Methods to be overridden by subclasses ---
 	def handle_event(self, event):
-		pass # Or common handling like checking for ESC to quit
+		if self.is_transitioning or self.end_screen_requested: return None
+		else: return event
 
 	def update(self, time_delta):
-		self.update_fade(time_delta) # Crucial: update transition logic
+		self._update_fade(time_delta)
+		self._update_always(time_delta)
+		if self.is_transitioning or self.end_screen_requested:
+			return 
+		self._update_interactive(time_delta)
 
+	def _update_always(self, time_delta):
+		pass
+
+	def _update_interactive(self, time_delta):
+		pass
+	
 	def render(self):
 		# Subclasses will draw their specific content here FIRST
 		# Then the transition overlay is drawn on top
-		self.render_transition()
+		self._render_transition_overlay()
 
 	def on_enter(self):
-		# logger.info(f"{self.__class__.__name__} entered.")
-		pass
+		logger.info(f"{self.__class__.__name__} entered.")
+		self.next_screen_name = None
+		self.end_screen_requested = False
+		self.is_transitioning = False
+		self.fade_alpha = 0
+
+	def on_ready(self):
+		logger.info(f"{self.__class__.__name__} ready.")
+		self.device_initial = self.device.depth
 
 	def on_exit(self):
-		# logger.info(f"{self.__class__.__name__} exited.")
+		logger.info(f"{self.__class__.__name__} exited.")
 		pass
