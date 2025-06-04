@@ -1,6 +1,5 @@
 # title_screen.py
 import pygame
-import os
 import logging
 import numpy as np
 
@@ -9,8 +8,8 @@ from base_screen import BaseScreen
 logger = logging.getLogger(__name__)
 
 class TitleScreen(BaseScreen):
-	def __init__(self, screen_surface, device, game_data):
-		super().__init__(screen_surface, device, game_data)
+	def __init__(self, screen_surface, device, asset_manager, game_data):
+		super().__init__(screen_surface, device, asset_manager, game_data)
 		self.time_offset = 0.0
 		# --- Wave Effect Parameters ---
 		self.max_amplitude_at_bottom = 1.0  # Amplitude: Scales linearly from 0 at the top of water to max_amplitude_at_bottom at the bottom in pixels.
@@ -28,19 +27,11 @@ class TitleScreen(BaseScreen):
 		self.yy_water = None
 
 		try:
-			base_dir_for_title_screen = os.path.dirname(os.path.abspath(__file__))
-			assets_path = os.path.join(base_dir_for_title_screen, 'assets', 'images')
-			image_path = os.path.join(assets_path, 'title_screen.jpg')
-			logger.info(f"Attempting to load image from: {image_path}")
-
-			full_background_image = pygame.image.load(image_path).convert()
+			full_background_image = self.asset_manager.load_image('title_screen.jpg', False)
 			full_background_image = pygame.transform.scale(full_background_image, (self.screen_rect.width, self.screen_rect.height))
-			logger.info(f"TitleScreen loaded full background image from: {image_path}")
-
 			self.static_background_part = full_background_image.subsurface(
 				pygame.Rect(0, 0, self.screen_rect.width, self.water_region_start_y)
 			).copy()
-
 			if self.water_region_height > 0: # Only process water if its region exists
 				original_water_surface_part = full_background_image.subsurface(
 					pygame.Rect(0, self.water_region_start_y, self.water_region_width, self.water_region_height)

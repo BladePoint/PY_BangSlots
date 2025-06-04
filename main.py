@@ -3,10 +3,10 @@ import api.orifice as orifice
 import json
 import textwrap
 import logging
-import os
 import sys
 from datetime import datetime
 
+from asset_manager import AssetManager
 from base_screen import BaseScreen
 from title_screen import TitleScreen
 from slot_game_screen import SlotGameScreen
@@ -18,6 +18,7 @@ FADE_DURATION = .4
 # --- Global Variables ---
 screen_surface = None
 device = None
+asset_manager = AssetManager()
 game_data = GameData()
 current_screen = None
 show_fps = True
@@ -36,13 +37,13 @@ def new_screen(next_screen_name):
 		logger.info(f"Instantiating screen: {next_screen_name}")
 		NewScreenClass = SCREEN_CLASSES.get(next_screen_name)
 		if NewScreenClass:
-			current_screen = NewScreenClass(screen_surface, device, game_data)
+			current_screen = NewScreenClass(screen_surface, device, asset_manager, game_data)
 			current_screen.on_enter
 			current_screen.fade_from_black(FADE_DURATION, current_screen.on_ready)
 		else:
 			raise ValueError(f"Unknown screen class key: '{next_screen_name}'.")
 	except Exception as e:
-		logger.critical(f"Failed to initialize TitleScreen: {e}", exc_info=True)
+		logger.critical(f"Failed to initialize {next_screen_name}: {e}", exc_info=True)
 		if device: device.close()
 		pygame.quit()
 		sys.exit(1)

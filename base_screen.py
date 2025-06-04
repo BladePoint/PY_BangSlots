@@ -6,9 +6,10 @@ logger = logging.getLogger(__name__)
 
 class BaseScreen:
 
-	def __init__(self, screen_surface, device, game_data):
+	def __init__(self, screen_surface, device, asset_manager, game_data):
 		self.screen_surface = screen_surface
 		self.device = device
+		self.asset_manager = asset_manager
 		self.game_data = game_data
 		self.screen_rect = screen_surface.get_rect()
 
@@ -95,10 +96,12 @@ class BaseScreen:
 
 	def _update_interactive(self, time_delta):
 		pass
-	
+
+	def _render_content(self):
+		pass
+
 	def render(self):
-		# Subclasses will draw their specific content here FIRST
-		# Then the transition overlay is drawn on top
+		self._render_content()
 		self._render_transition_overlay()
 
 	def on_enter(self):
