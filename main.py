@@ -38,7 +38,7 @@ def new_screen(next_screen_name):
 		NewScreenClass = SCREEN_CLASSES.get(next_screen_name)
 		if NewScreenClass:
 			current_screen = NewScreenClass(screen_surface, device, asset_manager, game_data)
-			current_screen.on_enter
+			current_screen.on_enter()
 			current_screen.fade_from_black(FADE_DURATION, current_screen.on_ready)
 		else:
 			raise ValueError(f"Unknown screen class key: '{next_screen_name}'.")

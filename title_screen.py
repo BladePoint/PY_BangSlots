@@ -52,7 +52,6 @@ class TitleScreen(BaseScreen):
 				self.original_water_np = None # Ensure it's None if no water region
 
 		except Exception as e:
-			logger.fatal(f"Could not load/process background. Path tried: {image_path if 'image_path' in locals() else 'N/A'}. Error: {e}", exc_info=True)
 			self.static_background_part = pygame.Surface((self.screen_rect.width, self.screen_rect.height))
 			self.static_background_part.fill((30, 30, 30))
 			self.original_water_np = None
