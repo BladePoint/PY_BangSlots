@@ -13,9 +13,9 @@ class BaseScreen:
 		self.game_data = game_data
 		self.screen_rect = screen_surface.get_rect()
 
-		self.device_initial = 0.0
-		self.device_delta = 0.0
-		self.device_threshold = 512.0
+		self.device_initial = 0
+		self.device_delta = 0
+		self.device_threshold = 512
 
 		self.next_screen_name = None
 		self.end_screen_requested = False
@@ -93,11 +93,11 @@ class BaseScreen:
 		self._update_always(time_delta)
 		if self.is_transitioning or self.end_screen_requested:
 			return
-		self._update_interactive(time_delta)
+		self._update_interactive()
 
 	def _update_always(self, time_delta): pass
 
-	def _update_interactive(self, time_delta):
+	def _update_interactive(self):
 		self.device_delta = abs(self.device.depth - self.device_initial)
 
 	def _render_content(self): pass
