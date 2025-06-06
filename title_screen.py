@@ -109,8 +109,8 @@ class TitleScreen(BaseScreen):
 			pygame.surfarray.blit_array(self.rippling_water_surface, np.transpose(rippling_array_data, (1, 0, 2)))
 
 	def _update_interactive(self, time_delta):
-		current_depth = self.device.depth
-		if abs(current_depth - self.device_initial) >= self.device_input_threshold: self.request_end_screen()
+		super()._update_interactive(time_delta)
+		if self.device_delta >= self.device_threshold: self.request_end_screen()
 
 	def render(self): # Same as before
 		if self.static_background_part:

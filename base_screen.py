@@ -13,8 +13,9 @@ class BaseScreen:
 		self.game_data = game_data
 		self.screen_rect = screen_surface.get_rect()
 
-		self.device_input_threshold = 512
-		self.device_initial = None
+		self.device_initial = 0.0
+		self.device_delta = 0.0
+		self.device_threshold = 512.0
 
 		self.next_screen_name = None
 		self.end_screen_requested = False
@@ -79,6 +80,9 @@ class BaseScreen:
 			self.fade_surface.set_alpha(self.fade_alpha)
 			self.screen_surface.blit(self.fade_surface, (0, 0))
 
+	def reset_device_initial(self):
+		self.device_initial = self.device.depth
+
 	# --- Methods to be overridden by subclasses ---
 	def handle_event(self, event):
 		if self.is_transitioning or self.end_screen_requested: return None
@@ -88,17 +92,15 @@ class BaseScreen:
 		self._update_fade(time_delta)
 		self._update_always(time_delta)
 		if self.is_transitioning or self.end_screen_requested:
-			return 
+			return
 		self._update_interactive(time_delta)
 
-	def _update_always(self, time_delta):
-		pass
+	def _update_always(self, time_delta): pass
 
 	def _update_interactive(self, time_delta):
-		pass
+		self.device_delta = abs(self.device.depth - self.device_initial)
 
-	def _render_content(self):
-		pass
+	def _render_content(self): pass
 
 	def render(self):
 		self._render_content()
@@ -113,7 +115,7 @@ class BaseScreen:
 
 	def on_ready(self):
 		logger.info(f"{self.__class__.__name__} ready.")
-		self.device_initial = self.device.depth
+		self.reset_device_initial()
 
 	def on_exit(self):
 		logger.info(f"{self.__class__.__name__} exited.")

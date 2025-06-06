@@ -2,6 +2,7 @@
 import pygame
 import logging
 import random
+import numpy as np
 from enum import Enum, auto
 
 from base_screen import BaseScreen
@@ -10,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 class MachineState(Enum):
 	ALL_LOCKED = auto()
+	READY = auto()
 	ALL_SPINNING = auto()
 	STOPPING_REEL_0 = auto()
 	PAUSE_AFTER_REEL_0 = auto()
@@ -18,7 +20,7 @@ class MachineState(Enum):
 	STOPPING_REEL_2 = auto()
 
 class ReelState(Enum):
-	LOCKED = auto()
+	STOPPED = auto()
 	SPINNING_FREELY = auto()
 	OVERSHOOTING = auto()
 	BOUNCING_BACK = auto()
@@ -29,6 +31,40 @@ class SlotGameScreen(BaseScreen):
 		self.background_image = self.asset_manager.load_image('slot_game_bg.webp', False)
 		self.reel_shading = self.asset_manager.load_image('reel_shading.webp', True)
 		self.reel_payline = self.asset_manager.load_image('reel_payline.png', True)
+
+		self.lever_shaft_original = self.asset_manager.load_image('lever_shaft.png', True)
+		self.lever_shaft_rendered = None
+		self.shaft_original_width = self.lever_shaft_original.get_width()
+		self.shaft_original_height = self.lever_shaft_original.get_height()
+		self.lever_shaft_fixed_bottom_y = 381
+		self.lever_shaft_current_topleft_pos = [763, 0.0]
+
+		self.lever_shadow_original = self.asset_manager.load_image('lever_shadow.png', True)
+		self.lever_shadow_rendered = None
+
+		self.lever_head_original = self.asset_manager.load_image('lever_head.webp', True)
+		self.lever_head_rect = self.lever_head_original.get_rect()
+		self.lever_head_rendered = None
+		self.lever_head_content_offset_x_in_padded = 2 # X offset of content within padded image
+		self.lever_head_content_offset_y_in_padded = 2 # Y offset of content within padded image
+		self.lever_head_content_width_original_hires = self.lever_head_rect.width - (2 * self.lever_head_content_offset_x_in_padded)
+		self.lever_head_content_height_original_hires = self.lever_head_rect.height - (2 * self.lever_head_content_offset_y_in_padded)
+		self.lever_head_content_target_onscreen_width = 42 
+		self.lever_head_content_target_onscreen_height = 42
+		self.base_downscale_factor_x = self.lever_head_content_target_onscreen_width / self.lever_head_content_width_original_hires
+		self.base_downscale_factor_y = self.lever_head_content_target_onscreen_height / self.lever_head_content_height_original_hires
+		self.base_downscale_factor = self.base_downscale_factor_y
+		self.lever_head_default_topleft_x = 746
+		self.lever_head_default_topleft_y = 158
+		self.lever_head_content_default_bottom_y = self.lever_head_default_topleft_y + self.lever_head_content_target_onscreen_height
+		self.lever_head_max_y_drop_of_bottom = 140
+		self.lever_min_scale_animation = 1.0
+		self.lever_max_scale_animation = 1.2
+		self.lever_scale_animation_range = self.lever_max_scale_animation - self.lever_min_scale_animation
+		self.lever_y_easing_func = lambda t: t * t
+		self.lever_scale_easing_func = lambda t: t * (2 - t)
+		self.lever_head_current_scale_factor = self.lever_min_scale_animation
+		self.lever_head_current_topleft_pos = [0.0, 0.0]
 
 		self.reel_viewport_width = 89
 		self.reel_viewport_height = 163
@@ -135,7 +171,7 @@ class SlotGameScreen(BaseScreen):
 		self.reel_target_ys = [0.0] * self.reel_count
 
 		self.machine_state = MachineState.ALL_LOCKED
-		self.reel_states = [ReelState.LOCKED] * self.reel_count
+		self.reel_states = [ReelState.STOPPED] * self.reel_count
 
 		# Animation parameters
 		self.all_spin_duration = .8  # seconds all reels spin freely
@@ -147,6 +183,12 @@ class SlotGameScreen(BaseScreen):
 
 		self.stop_timer = 0.0
 
+		self.update_lever(True)
+
+	def set_machine_ready(self):
+		self.reset_device_initial()
+		self.machine_state = MachineState.READY
+	
 	def roll_logical_stops(self):
 		logical_indices = []
 		for logical_strip in self.logical_strips_data: logical_indices.append(random.randrange(len(logical_strip)))
@@ -187,14 +229,19 @@ class SlotGameScreen(BaseScreen):
 
 	def on_enter(self):
 		super().on_enter()
+		visual_indices = self.symbols_to_visual(['7', '🍒', '💋'])
+		self.determine_target_ys(visual_indices)
+		self.current_to_target_ys()
 
 	def on_ready(self):
 		super().on_ready()
-		logical_indices = self.roll_logical_stops()
-		chosen_symbols = self.logical_to_symbols(logical_indices)
-		visual_indices = self.symbols_to_visual(chosen_symbols)
-		self.determine_target_ys(visual_indices)
-		self.spin_all_reels()
+		self.set_machine_ready()
+
+		#logical_indices = self.roll_logical_stops()
+		#chosen_symbols = self.logical_to_symbols(logical_indices)
+		#visual_indices = self.symbols_to_visual(chosen_symbols)
+		#self.determine_target_ys(visual_indices)
+		#self.spin_all_reels()
 
 	def on_exit(self):
 		super().on_exit()
@@ -208,22 +255,63 @@ class SlotGameScreen(BaseScreen):
 		#		self.request_end_screen()
 
 	def _update_always(self, time_delta):
+		self.update_lever()
 		self.update_reel_animations(time_delta)
 
+	def update_lever(self, isForced=False):
+		if self.machine_state == MachineState.READY or isForced:
+			progress = self.device_delta / self.device_threshold
+			progress = max(0.0, min(1.0, progress))
+			if progress == 1:
+				logical_indices = self.roll_logical_stops()
+				chosen_symbols = self.logical_to_symbols(logical_indices)
+				visual_indices = self.symbols_to_visual(chosen_symbols)
+				self.determine_target_ys(visual_indices)
+				self.spin_all_reels() # changes self.machine_state to MachineState.ALL_SPINNING
+
+			eased_progress_y = self.lever_y_easing_func(progress)
+			eased_progress_scale = self.lever_scale_easing_func(progress)
+			self.lever_head_current_animation_scale_factor = self.lever_min_scale_animation + (eased_progress_scale * self.lever_scale_animation_range)
+			total_current_scale = self.base_downscale_factor * self.lever_head_current_animation_scale_factor
+			self.lever_head_rendered = pygame.transform.rotozoom(self.lever_head_original, 0, total_current_scale)
+			target_bottom_y_for_onscreen_content = self.lever_head_content_default_bottom_y + (eased_progress_y * self.lever_head_max_y_drop_of_bottom)
+			current_head_scaled_content_height = self.lever_head_content_target_onscreen_height * self.lever_head_current_animation_scale_factor
+			current_head_scaled_offset_y = self.lever_head_content_offset_y_in_padded * total_current_scale
+			new_top_y_for_rendered_surface = target_bottom_y_for_onscreen_content - (current_head_scaled_offset_y + current_head_scaled_content_height)
+			content_default_center_x_onscreen = self.lever_head_default_topleft_x + (self.lever_head_content_target_onscreen_width / 2.0)
+			current_onscreen_content_width = self.lever_head_content_target_onscreen_width * self.lever_head_current_animation_scale_factor
+			current_onscreen_padding_x = self.lever_head_content_offset_x_in_padded * total_current_scale
+			new_top_x_for_rendered_surface = content_default_center_x_onscreen - (current_onscreen_padding_x + current_onscreen_content_width / 2.0)
+			self.lever_head_current_topleft_pos[0] = round(new_top_x_for_rendered_surface)
+			self.lever_head_current_topleft_pos[1] = round(new_top_y_for_rendered_surface)
+
+			head_content_bottom_y = self.lever_head_current_topleft_pos[1] + current_head_scaled_offset_y + current_head_scaled_content_height
+			shaft_top_y = round(head_content_bottom_y - 1)
+			shaft_height = max(0,self.lever_shaft_fixed_bottom_y - shaft_top_y)
+			self.lever_shaft_current_topleft_pos[1] = shaft_top_y
+			self.lever_shaft_rendered = pygame.transform.scale(self.lever_shaft_original, (self.shaft_original_width, shaft_height))
+
+			overall_gradient_alpha = int(eased_progress_y * 191)
+			overall_gradient_alpha = max(0, min(255, overall_gradient_alpha)) # Clamp
+			self.lever_shadow_rendered = pygame.transform.scale(self.lever_shadow_original, (self.shaft_original_width, shaft_height))
+			self.lever_shadow_rendered.set_alpha(overall_gradient_alpha)
+		elif self.machine_state == MachineState.ALL_SPINNING:
+			pass
+
 	def update_reel_animations(self, time_delta):
-		if self.machine_state == MachineState.ALL_LOCKED: return
+		if self.machine_state == MachineState.ALL_LOCKED or self.machine_state == MachineState.READY: return
 		self.stop_timer += time_delta
 		if self.machine_state == MachineState.ALL_SPINNING:
 			if self.stop_timer >= self.all_spin_duration:
 				self.machine_state = MachineState.STOPPING_REEL_0
 				self.reel_states[0] = ReelState.OVERSHOOTING
-				logger.info("All spinning phase complete. Reel 0 overshooting target.")
+				logger.debug("All spinning phase complete. Reel 0 overshooting target.")
 				self.stop_timer = 0.0
 		elif self.machine_state == MachineState.STOPPING_REEL_0:
-			if self.reel_states[0] == ReelState.LOCKED:
+			if self.reel_states[0] == ReelState.STOPPED:
 				self.machine_state = MachineState.PAUSE_AFTER_REEL_0
 				self.stop_sequence_timer = 0.0
-				logger.debug("Reel 0 locked. Pausing.")
+				logger.debug("Reel 0 stopped. Pausing.")
 		elif self.machine_state == MachineState.PAUSE_AFTER_REEL_0:
 			if self.stop_timer >= self.pause_duration_1:
 				self.machine_state = MachineState.STOPPING_REEL_1
@@ -231,10 +319,10 @@ class SlotGameScreen(BaseScreen):
 				logger.debug("Pause after Reel 0 complete. Reel 1 overshooting target.")
 				self.stop_timer = 0.0
 		elif self.machine_state == MachineState.STOPPING_REEL_1:
-			if self.reel_states[1] == ReelState.LOCKED:
+			if self.reel_states[1] == ReelState.STOPPED:
 				self.machine_state = MachineState.PAUSE_AFTER_REEL_1
 				self.stop_timer = 0.0
-				logger.debug("Reel 1 locked. Pausing.")
+				logger.debug("Reel 1 stopped. Pausing.")
 		elif self.machine_state == MachineState.PAUSE_AFTER_REEL_1:
 			if self.stop_timer >= self.pause_duration_2:
 				self.machine_state = MachineState.STOPPING_REEL_2
@@ -242,13 +330,11 @@ class SlotGameScreen(BaseScreen):
 				logger.debug("Pause after Reel 1 complete. Reel 2 overshooting target.")
 				self.stop_timer = 0.0
 		elif self.machine_state == MachineState.STOPPING_REEL_2:
-			if self.reel_states[2] == ReelState.LOCKED:
+			if self.reel_states[2] == ReelState.STOPPED:
 				self.machine_state = MachineState.ALL_LOCKED
 				self.stop_timer = 0.0
-				logger.info("All reels stopped and locked.")
-				# Trigger win evaluation etc.
-				# self.evaluate_wins()
-				# Potentially set machine_state back to READY_TO_SPIN or IDLE after results displayed
+				logger.info("All reels stopped. Machine locked.")
+				self.evaluate_wins()
 
 		for i in range(len(self.reel_current_ys)):
 			cycle_height = self.reel_cycle_heights[i]
@@ -280,12 +366,15 @@ class SlotGameScreen(BaseScreen):
 					move_amount = bounce_speed * time_delta
 					if distance_to_final <= move_amount * 1.1 and distance_to_final >=0:
 						self.reel_current_ys[i] = final_y
-						self.reel_states[i] = ReelState.LOCKED
-						logger.debug(f"Reel {i}: Bounced to final target {final_y}. LOCKED.")
+						self.reel_states[i] = ReelState.STOPPED
+						logger.debug(f"Reel {i}: Bounced to final target {final_y}. STOPPED.")
 					else:
 						self.reel_current_ys[i] += move_amount
 						if self.reel_current_ys[i] >= cycle_height: self.reel_current_ys[i] -= cycle_height
 
+	def evaluate_wins(self):
+		pass
+		
 	def _render_content(self):
 		self.screen_surface.blit(self.background_image, (0, 0))
 		for i in range(len(self.reel_surfaces)):
@@ -306,4 +395,7 @@ class SlotGameScreen(BaseScreen):
 			except Exception as e:
 				logger.error(f"Error blitting reel {i}: {e}. Source Rect: {source_rect_on_reel}, Reel Surf Size: {reel_to_blit.get_size()}, Current_ys: {self.reel_current_ys[i]}, MainCycleStart: {self.reel_cycle_start_ys[i]}")
 			self.screen_surface.blit(self.reel_shading, destination_on_screen)
-			self.screen_surface.blit(self.reel_payline, (386, 253))
+		self.screen_surface.blit(self.reel_payline, (386, 253))
+		self.screen_surface.blit(self.lever_shaft_rendered, self.lever_shaft_current_topleft_pos)
+		self.screen_surface.blit(self.lever_shadow_rendered, self.lever_shaft_current_topleft_pos)
+		self.screen_surface.blit(self.lever_head_rendered, self.lever_head_current_topleft_pos)		
