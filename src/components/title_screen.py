@@ -3,7 +3,7 @@ import pygame
 import logging
 import numpy as np
 
-from base_screen import BaseScreen
+from src.components.base_screen import BaseScreen
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ class TitleScreen(BaseScreen):
 		self.yy_water = None
 
 		try:
-			full_background_image = self.asset_manager.load_image('title_screen.jpg', False)
+			full_background_image = self.asset_manager.load_image('title_screen.jpg', False, False)
 			full_background_image = pygame.transform.scale(full_background_image, (self.screen_rect.width, self.screen_rect.height))
 			self.static_background_part = full_background_image.subsurface(
 				pygame.Rect(0, 0, self.screen_rect.width, self.water_region_start_y)
@@ -112,7 +112,7 @@ class TitleScreen(BaseScreen):
 		super()._update_interactive()
 		if self.device_delta >= self.device_threshold: self.request_end_screen()
 
-	def render(self): # Same as before
+	def _render_content(self):
 		if self.static_background_part:
 			self.screen_surface.blit(self.static_background_part, (0, 0))
 		else:
@@ -122,4 +122,10 @@ class TitleScreen(BaseScreen):
 		if self.rippling_water_surface and self.original_water_np is not None:
 			self.screen_surface.blit(self.rippling_water_surface, (0, self.water_region_start_y))
 
-		super().render()
+	def on_exit(self):
+		super().on_exit()
+		self.static_background_part = None
+		self.original_water_np = None
+		self.rippling_water_surface = None
+		self.xx_water = None
+		self.yy_water = None

@@ -6,7 +6,9 @@ import numpy as np
 from enum import Enum, auto
 from collections import Counter
 
-from base_screen import BaseScreen
+from src.components.base_screen import BaseScreen
+from src.components.button_image import ButtonImage
+from src.components.button_image import ButtonBase
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +32,7 @@ class ReelState(Enum):
 class SlotGameScreen(BaseScreen):
 	# Total Expected Payout Value (for 1 unit bet): 749005.0
 	# Total Possible Combinations: 786432
-	# Calculated Theoretical RTP: 95.2409%
+	# Calculated Theoretical RTP: 94.9201%
 	RAW_PAYTABLE = '''
 		💋💋💋,800,Triple Wild
 		💋💋7,320,Triple Seven (2 Wilds x4)
@@ -92,14 +94,30 @@ class SlotGameScreen(BaseScreen):
 		🍒--,2,Any One Cherry
 		🍒□□,2,Any One Cherry
 	'''
+	REEL_COUNT = 3
+	MAXIMUM_BET = 3
 
 	def __init__(self, screen_surface, device, asset_manager, game_data):
 		super().__init__(screen_surface, device, asset_manager, game_data)
-		self.background_image = self.asset_manager.load_image('slot_game_bg.webp', False)
-		self.reel_shading = self.asset_manager.load_image('reel_shading.webp', True)
-		self.reel_payline = self.asset_manager.load_image('reel_payline.png', True)
+		self._init_static_gfx()
+		self._init_lever_shaft()
+		self._init_lever_head()
+		self._init_reels()
+		self._init_attendant()
+		self._init_ui()
+		self.machine_state = MachineState.LOCKED
+		self.reel_states = [ReelState.STOPPED] * SlotGameScreen.REEL_COUNT
+		self.wager = None
+		# self.calculate_rtp() # Warning, this calculation is long and may lock up your system for a few seconds
 
-		self.lever_shaft_original = self.asset_manager.load_image('lever_shaft.png', True)
+	def _init_static_gfx(self):
+		self.background = self.asset_manager.load_image('slot_game_bg.webp', False, False)
+		self.reel_shading = self.asset_manager.load_image('reel_shading.webp', True, True)
+		self.reel_payline = self.asset_manager.load_image('reel_payline.png', True, True)
+		self.digital_panel = self.asset_manager.load_image('bet_win.webp', True, True)
+
+	def _init_lever_shaft(self):
+		self.lever_shaft_original = self.asset_manager.load_image('lever_shaft.png', False, True)
 		self.lever_shaft_rendered = None
 		self.shaft_original_width = self.lever_shaft_original.get_width()
 		self.shaft_original_height = self.lever_shaft_original.get_height()
@@ -108,12 +126,12 @@ class SlotGameScreen(BaseScreen):
 		self.lever_progress = 0.0
 		self.lever_return_timer = 0.0
 		self.lever_withdraw_duration = .2
-		self.withdraw_return_start_progress = 0.0
-
-		self.lever_shadow_original = self.asset_manager.load_image('lever_shadow.png', True)
+		self.withdraw_return_initial_progress = 0.0
+		self.lever_shadow_original = self.asset_manager.load_image('lever_shadow.png', True, True)
 		self.lever_shadow_rendered = None
 
-		self.lever_head_original = self.asset_manager.load_image('lever_head.webp', True)
+	def _init_lever_head(self):
+		self.lever_head_original = self.asset_manager.load_image('lever_head.webp', True, True)
 		self.lever_head_rect = self.lever_head_original.get_rect()
 		self.lever_head_rendered = None
 		self.lever_head_content_offset_x_in_padded = 2 # X offset of content within padded image
@@ -137,6 +155,7 @@ class SlotGameScreen(BaseScreen):
 		self.lever_head_current_scale_factor = self.lever_min_scale_animation
 		self.lever_head_current_topleft_pos = [0.0, 0.0]
 
+	def _init_reels(self):
 		self.reel_viewport_width = 89
 		self.reel_viewport_height = 163
 		self.blank_height = 29
@@ -144,12 +163,12 @@ class SlotGameScreen(BaseScreen):
 		self.symbol_images = {}
 		self.symbol_images['□'] = pygame.Surface((89, self.blank_height))
 		self.symbol_images['□'].fill(pygame.Color("#fffcf9"))
-		self.symbol_images['🍒'] = self.asset_manager.load_image('symbol_cherry.webp', False)
-		self.symbol_images['-'] = self.asset_manager.load_image('symbol_bar_1.webp', False)
-		self.symbol_images['='] = self.asset_manager.load_image('symbol_bar_2.webp', False)
-		self.symbol_images['≡'] = self.asset_manager.load_image('symbol_bar_3.webp', False)
-		self.symbol_images['7'] = self.asset_manager.load_image('symbol_seven.webp', False)
-		self.symbol_images['💋'] = self.asset_manager.load_image('symbol_wild.webp', False)
+		self.symbol_images['🍒'] = self.asset_manager.load_image('symbol_cherry.webp', False, True)
+		self.symbol_images['-'] = self.asset_manager.load_image('symbol_bar_1.webp', False, True)
+		self.symbol_images['='] = self.asset_manager.load_image('symbol_bar_2.webp', False, True)
+		self.symbol_images['≡'] = self.asset_manager.load_image('symbol_bar_3.webp', False, True)
+		self.symbol_images['7'] = self.asset_manager.load_image('symbol_seven.webp', False, True)
+		self.symbol_images['💋'] = self.asset_manager.load_image('symbol_wild.webp', False, True)
 		self.parsed_paytable = self.parse_paytable_data(SlotGameScreen.RAW_PAYTABLE)
 		self.visual_strips_data = [
 			['-', '□', '≡', '□', '🍒', '□', '=', '□', '-', '□', '7', '□', '≡', '□', '=', '□', '-', '□', '💋', '□', '🍒', '□'],
@@ -157,9 +176,9 @@ class SlotGameScreen(BaseScreen):
 			['=', '□', '-', '□', '🍒', '□', '-', '□', '7', '□', '🍒', '□', '=', '□', '-', '□', '≡', '□', '💋', '□', '🍒', '□']
 		]
 		self.logical_strips_compositions = [
-			{'💋':1, '7':8, '≡':4, '=': 1, '-':29, '🍒': 4, '□':17}, # Reel 1 (e.g., 64 stops total) - More "action"
-			{'💋':1, '7':1, '≡':1, '=':2, '-':41, '🍒':5, '□':45}, # Reel 2 (e.g., 96 stops total) - A bit tighter
-			{'💋':1, '7':1, '≡':1, '=':3, '-':20, '🍒':7, '□':95} # Reel 3 (e.g., 128 stops total) - Controls top payouts, fewer high symbols
+			{'💋':1, '7':9, '≡':9, '=': 9, '-':26, '🍒': 1, '□':9}, # Reel 1 (e.g., 64 stops total) - More "action"
+			{'💋':1, '7':1, '≡':1, '=':6, '-':41, '🍒':1, '□':45}, # Reel 2 (e.g., 96 stops total) - A bit tighter
+			{'💋':1, '7':1, '≡':1, '=':3, '-':22, '🍒':10, '□':90} # Reel 3 (e.g., 128 stops total) - Controls top payouts, fewer high symbols
 		]
 		self.logical_strips_data = []
 		for r_idx, composition in enumerate(self.logical_strips_compositions):
@@ -167,12 +186,6 @@ class SlotGameScreen(BaseScreen):
 			for symbol, count in composition.items():
 				current_strip.extend([symbol] * count) # Add the symbol to the strip 'count' number of times
 			self.logical_strips_data.append(current_strip)
-		#self.logical_strips_data = [
-			#['💋', '7', '≡', '≡', '≡', '=', '=', '=', '=', '-', '-', '-', '-', '-', '🍒', '🍒', '🍒', '🍒', '🍒', '🍒', '🍒', '□', '□', '□', '□', '□', '□', '□', '□', '□', '□', '□'], # 💋:1, 7:1, ≡:3, =:4, -:5, 🍒:7, □:11, total 32 elements
-			#['💋', '7', '7', '≡', '≡', '≡', '=', '=', '=', '=', '-', '-', '-', '-', '🍒', '🍒', '🍒', '🍒', '🍒', '🍒', '□', '□', '□', '□', '□', '□', '□', '□', '□', '□', '□', '□'], # 💋:1, 7:2, ≡:3, =:4, -:4, 🍒:6, □:12, total 32 elements
-			#['💋', '7', '7', '7', '≡', '≡', '≡', '=', '=', '=', '=', '-', '-', '-', '-', '🍒', '🍒', '🍒', '🍒', '🍒', '□', '□', '□', '□', '□', '□', '□', '□', '□', '□', '□', '□'] # 💋:1, 7:3, ≡:3, =:4, -:4, 🍒:5, □:12, total 32 elements
-		#]
-		self.reel_count = len(self.visual_strips_data)
 		self.visual_symbol_indices_map = [] # List of dicts, one per reel
 		for visual_strip in self.visual_strips_data:
 			symbol_to_indices = {} # For the current reel
@@ -198,7 +211,6 @@ class SlotGameScreen(BaseScreen):
 				current_y += img_height
 			self.reel_symbol_info.append(symbol_info_for_this_strip)
 			self.reel_cycle_heights.append(current_y)
-
 		self.reel_surfaces = []
 		self.reel_cycle_start_ys = [] # Y pos where main cycle starts on each extended reel
 		for r_idx, strip_data in enumerate(self.visual_strips_data): # Build the actual extended reel surfaces for drawing
@@ -249,14 +261,9 @@ class SlotGameScreen(BaseScreen):
 				current_y_blit_pos += symbol_image.get_height()
 				
 			self.reel_surfaces.append(reel_surf)
-
 		self.reel_result = None
-		self.reel_current_ys = [0.0] * self.reel_count
-		self.reel_target_ys = [0.0] * self.reel_count
-
-		self.machine_state = MachineState.LOCKED
-		self.reel_states = [ReelState.STOPPED] * self.reel_count
-
+		self.reel_current_ys = [0.0] * SlotGameScreen.REEL_COUNT
+		self.reel_target_ys = [0.0] * SlotGameScreen.REEL_COUNT
 		# Animation parameters
 		self.all_spin_duration = .6  # seconds all reels spin freely
 		self.pause_duration_1 = 0.2       # seconds pause after reel 0 stops
@@ -264,9 +271,40 @@ class SlotGameScreen(BaseScreen):
 		self.spin_speed_normal = self.reel_viewport_height * 8 # pixels per second during free spin / approaching target
 		self.bounce_back_speed_factor = .1
 		self.overshoot_height = self.blank_height / 2.0
-
 		self.stop_timer = 0.0
-		#self.calculate_rtp() # Warning, this calculation will take a while and may lock up your system for a few seconds
+
+	def _init_attendant(self):
+		self.arousal = 0
+		self.undress_1 = 25
+		self.undress_2 = 50
+		self.undress_3 = 75
+		self.undress_4 = 125
+		self.undress_5 = 175
+		self.undress_xxx = 250
+
+	def _init_ui(self):
+		self.libre_baskerville_36 = self.asset_manager.load_font("LibreBaskerville-Bold.ttf", 36)
+		self.money_text_surface = None
+		self.money_text_rect = None
+		self.dseg7_36 = self.asset_manager.load_font("DSEG7Classic-Regular.ttf", 36)
+		self.bet_text_surface = None
+		self.bet_text_rect = None
+		self.win_amount = 0
+		self.win_text_surface = None
+		self.win_text_rect = None
+		self.bet_plus = ButtonImage(self.asset_manager.load_image('bet_plus.webp', True, True), 319, 416, None, None, self._increment_bet)
+		self.bet_minus = ButtonImage(self.asset_manager.load_image('bet_minus.webp', True, True), 487, 416, None, None, self._decrement_bet)
+		self.bet_max = ButtonImage(self.asset_manager.load_image('bet_max.webp', True, True), 656, 416, None, None, self._maximize_bet)
+		self.sperm_bank_sign = ButtonBase(0, 0, 135, 116, self._to_sperm_bank)
+	def _increment_bet(self):
+		if self.game_data.increment_bet(SlotGameScreen.MAXIMUM_BET): self.test_machine_ready()
+	def _decrement_bet(self):
+		if self.game_data.decrement_bet(): self.test_machine_ready()
+	def _maximize_bet(self):
+		if self.game_data.set_bet(SlotGameScreen.MAXIMUM_BET, SlotGameScreen.MAXIMUM_BET): self.test_machine_ready()
+	def _to_sperm_bank(self):
+		self.set_next_screen('SpermBankScreen')
+		self.request_end_screen()
 
 	def parse_paytable_data(self, raw_data):
 		parsed_table = []
@@ -318,10 +356,22 @@ class SlotGameScreen(BaseScreen):
 		logger.info(f"Calculated Theoretical RTP: {rtp_percentage:.4f}%")
 		return rtp_percentage
 
-	def set_machine_ready(self):
-		self.reset_device_initial()
-		self.machine_state = MachineState.READY
-	
+	def test_machine_ready(self):
+		if self.game_data.money >= self.game_data.bet:
+			self.reset_device_initial()
+			self.machine_state = MachineState.READY
+		else:
+			logger.info(f"Your holdings of ${self.game_data.money} is not enough to cover the bet of ${self.game_data.bet}.")
+
+	def commit_and_roll(self):
+		self.wager = self.game_data.place_bet()
+		self.game_data.save()
+		logical_indices = self.roll_logical_stops()
+		self.reel_result = self.logical_to_symbols(logical_indices)
+		visual_indices = self.symbols_to_visual(self.reel_result)
+		self.determine_target_ys(visual_indices)
+		self.spin_all_reels() # changes self.machine_state to MachineState.ALL_SPINNING
+
 	def roll_logical_stops(self):
 		logical_indices = []
 		for logical_strip in self.logical_strips_data: logical_indices.append(random.randrange(len(logical_strip)))
@@ -366,26 +416,28 @@ class SlotGameScreen(BaseScreen):
 		self.determine_target_ys(visual_indices)
 		self.current_to_target_ys()
 		self.calc_lever(0.0)
+		self.update_ui()
 
 	def on_ready(self):
 		super().on_ready()
-		self.set_machine_ready()
+		self.test_machine_ready()
 
 	def on_exit(self):
 		super().on_exit()
 
 	def handle_event(self, event):
 		base_event = super().handle_event(event)
-		#if base_event is not None:
-		#	if event.type == pygame.KEYDOWN:
-		#		self.request_end_screen()
-		#	elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-		#		self.request_end_screen()
+		if base_event:
+			self.bet_plus.handle_event(base_event)
+			self.bet_minus.handle_event(base_event)
+			self.bet_max.handle_event(base_event)
+			self.sperm_bank_sign.handle_event(base_event)
 
 	def _update_always(self, time_delta):
 		self.update_reel_animations(time_delta)
 		self.update_lever_return(time_delta)
 		self.calc_lever(self.lever_progress)
+		self.update_ui()
 
 	def _update_interactive(self):
 		super()._update_interactive()
@@ -396,21 +448,17 @@ class SlotGameScreen(BaseScreen):
 			self.lever_progress = max(0.0, min(1.0, self.device_delta / self.device_threshold))
 			if self.lever_progress == 1:
 				self.lever_return_timer = 0.0
-				logical_indices = self.roll_logical_stops()
-				self.reel_result = self.logical_to_symbols(logical_indices)
-				visual_indices = self.symbols_to_visual(self.reel_result)
-				self.determine_target_ys(visual_indices)
-				self.spin_all_reels() # changes self.machine_state to MachineState.ALL_SPINNING
+				self.commit_and_roll()
 			elif self.device.depth == 0 and self.device_delta > 0:
 				self.lever_return_timer = 0.0
-				self.withdraw_return_start_progress = self.lever_progress
+				self.withdraw_return_initial_progress = self.lever_progress
 				self.machine_state = MachineState.WITHDRAW_RESET
 
 	def update_lever_return(self, time_delta):
 		if self.machine_state == MachineState.ALL_SPINNING: self._calc_lever_return(time_delta, self.all_spin_duration, 1.0)
 		elif self.machine_state == MachineState.WITHDRAW_RESET:
-			if self.lever_progress == 0: self.set_machine_ready()
-			else: self._calc_lever_return(time_delta, self.lever_withdraw_duration * self.withdraw_return_start_progress, self.withdraw_return_start_progress)
+			if self.lever_progress == 0: self.test_machine_ready()
+			else: self._calc_lever_return(time_delta, self.lever_withdraw_duration * self.withdraw_return_initial_progress, self.withdraw_return_initial_progress)
 	def _calc_lever_return(self, time_delta, duration, start_progress_for_return):
 		self.lever_return_timer += time_delta
 		return_progress = self.lever_return_timer / duration
@@ -523,10 +571,16 @@ class SlotGameScreen(BaseScreen):
 		result_canonical = self._iterable_to_canonical(self.reel_result)
 		paytable_entry = self._get_paytable_entry(result_canonical)
 		if paytable_entry:
-			logger.info(f'{paytable_entry["name"]} pays {paytable_entry["payout"]}x.')
+			multiplier = paytable_entry["payout"]
+			self.win_amount = self.wager * multiplier
+			logger.info(f'{paytable_entry["name"]} pays {multiplier}x.')
+			self.game_data.win(self.win_amount)
+			self.game_data.save()
+			self.update_attendant()
 		else:
-			logger.info('No paytable entry - lose')
-		self.set_machine_ready()
+			self.win_amount = 0
+		self.wager = None
+		self.test_machine_ready()
 	def _get_paytable_entry(self, result_canonical):
 		for winning_entry in self.parsed_paytable:
 			if winning_entry['combination_canonical'] == result_canonical: return winning_entry
@@ -535,9 +589,26 @@ class SlotGameScreen(BaseScreen):
 		entry = self._get_paytable_entry(canonical)
 		if entry: return entry['payout']
 		else: return 0
-		
+
+	def update_ui(self):
+		money_string = f"${self.game_data.money}"
+		shadow_offset = 1
+		money_text = self.libre_baskerville_36.render(money_string, True, (0, 255, 0))
+		money_shadow = self.libre_baskerville_36.render(money_string, True, (0, 0, 0))
+		self.money_text_surface = pygame.Surface((money_text.get_width()+shadow_offset, money_text.get_height()+shadow_offset), pygame.SRCALPHA)
+		self.money_text_surface.blit(money_shadow, (0, 1))
+		self.money_text_surface.blit(money_text, (1, 0))
+		self.money_text_rect = self.money_text_surface.get_rect(midtop=(self.screen_surface.get_width() // 2, 0))
+		self.bet_text_surface = self.dseg7_36.render(f"{self.game_data.bet}", True, (255, 0, 0))
+		self.bet_text_rect = self.bet_text_surface.get_rect(topright=(417, 361))
+		self.win_text_surface = self.dseg7_36.render(f"{self.win_amount}", True, (255, 0, 0))
+		self.win_text_rect = self.win_text_surface.get_rect(topright=(781, 361))
+
+	def update_attendant(self):
+		self.arousal += self.win_amount
+
 	def _render_content(self):
-		self.screen_surface.blit(self.background_image, (0, 0))
+		self.screen_surface.blit(self.background, (0, 0))
 		for i in range(len(self.reel_surfaces)):
 			reel_to_blit = self.reel_surfaces[i]
 			destination_on_screen = self.reel_positions[i]
@@ -559,4 +630,11 @@ class SlotGameScreen(BaseScreen):
 		self.screen_surface.blit(self.reel_payline, (386, 253))
 		self.screen_surface.blit(self.lever_shaft_rendered, self.lever_shaft_current_topleft_pos)
 		self.screen_surface.blit(self.lever_shadow_rendered, self.lever_shaft_current_topleft_pos)
-		self.screen_surface.blit(self.lever_head_rendered, self.lever_head_current_topleft_pos)		
+		self.screen_surface.blit(self.lever_head_rendered, self.lever_head_current_topleft_pos)
+		self.screen_surface.blit(self.money_text_surface, self.money_text_rect)
+		self.screen_surface.blit(self.digital_panel, (319, 348))
+		self.screen_surface.blit(self.bet_text_surface, self.bet_text_rect)
+		self.screen_surface.blit(self.win_text_surface, self.win_text_rect)
+		self.bet_plus.render(self.screen_surface)
+		self.bet_minus.render(self.screen_surface)
+		self.bet_max.render(self.screen_surface)

@@ -1,32 +1,33 @@
+#main.py
 import pygame
-import api.orifice as orifice
 import json
-import textwrap
 import logging
 import sys
-from datetime import datetime
+import api.orifice as orifice
 
-from asset_manager import AssetManager
-from base_screen import BaseScreen
-from title_screen import TitleScreen
-from slot_game_screen import SlotGameScreen
+from pathlib import Path
 
-from game_data import GameData
+from src.components.asset_manager import AssetManager
+from src.components.game_data import GameData
+from src.components.title_screen import TitleScreen
+from src.components.slot_game_screen import SlotGameScreen
+from src.components.sperm_bank_screen import SpermBankScreen
 
+PROJECT_ROOT = Path(__file__).parent 
 FADE_DURATION = .4
 
 # --- Global Variables ---
 screen_surface = None
 device = None
-asset_manager = AssetManager()
-game_data = GameData()
+asset_manager = AssetManager(PROJECT_ROOT)
+game_data = GameData.load_or_create(PROJECT_ROOT)
 current_screen = None
-show_fps = True
+show_fps = False
 
-# Screen class mapping
-SCREEN_CLASSES = {
+SCREEN_CLASSES = {# Screen class mapping
     "TitleScreen": TitleScreen,
-	"SlotGameScreen": SlotGameScreen
+	"SlotGameScreen": SlotGameScreen,
+	"SpermBankScreen": SpermBankScreen
     # "GameScreen": GameScreen, # Add other screen classes here
     # "ShopScreen": ShopScreen,
 }
@@ -96,13 +97,12 @@ except Exception as e:
 	sys.exit(1)
 
 try: # Initialize fonts
-	title_font = pygame.font.SysFont(None, 64)
-	font = pygame.font.SysFont(None, 36)
 	small_font = pygame.font.SysFont(None, 24)
-	logger.debug("Fonts loaded")
+	asset_manager.load_font("LibreBaskerville-Bold.ttf", 36)
+	asset_manager.load_font("DSEG7Classic-Regular.ttf", 36)
+	asset_manager.load_font(None, 32, True)
 except Exception as e:
 	logger.error(f"Error loading fonts: {e}")
-	title_font = font = small_font = pygame.font.SysFont(None, 24)  # Fallback
 
 new_screen('TitleScreen')
 clock = pygame.time.Clock() # Clock
