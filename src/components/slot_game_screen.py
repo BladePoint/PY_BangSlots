@@ -274,6 +274,7 @@ class SlotGameScreen(BaseScreen):
 		self.stop_timer = 0.0
 
 	def _init_attendant(self):
+		self.attendant = self.asset_manager.load_image('att0.webp', True, False)
 		self.arousal = 0
 		self.undress_1 = 25
 		self.undress_2 = 50
@@ -606,6 +607,11 @@ class SlotGameScreen(BaseScreen):
 
 	def update_attendant(self):
 		self.arousal += self.win_amount
+		if self.arousal >= self.undress_5: self.attendant = self.asset_manager.load_image('att5.webp', True, False)
+		elif self.arousal >= self.undress_4: self.attendant = self.asset_manager.load_image('att4.webp', True, False)
+		elif self.arousal >= self.undress_3: self.attendant = self.asset_manager.load_image('att3.webp', True, False)
+		elif self.arousal >= self.undress_2: self.attendant = self.asset_manager.load_image('att2.webp', True, False)
+		elif self.arousal >= self.undress_1: self.attendant = self.asset_manager.load_image('att1.webp', True, False)
 
 	def _render_content(self):
 		self.screen_surface.blit(self.background, (0, 0))
@@ -631,6 +637,7 @@ class SlotGameScreen(BaseScreen):
 		self.screen_surface.blit(self.lever_shaft_rendered, self.lever_shaft_current_topleft_pos)
 		self.screen_surface.blit(self.lever_shadow_rendered, self.lever_shaft_current_topleft_pos)
 		self.screen_surface.blit(self.lever_head_rendered, self.lever_head_current_topleft_pos)
+		self.screen_surface.blit(self.attendant,(-50, -41))
 		self.screen_surface.blit(self.money_text_surface, self.money_text_rect)
 		self.screen_surface.blit(self.digital_panel, (319, 348))
 		self.screen_surface.blit(self.bet_text_surface, self.bet_text_rect)
